@@ -1,108 +1,93 @@
 #!/usr/bin/python
+"""This script fetches data from the specified apcupsd daemon and
+uploads it to the configured influxdb instance."""
+
 import os
-import requests.exceptions
 import time
 
 from apcaccess import status as apc
-from influxdb import InfluxDBClient
-from influxdb.exceptions import InfluxDBClientError
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 
-def remove_irrelevant_data(status, remove_these_keys):
-    for key in remove_these_keys:
-        status.pop(key, None)
+ORG = os.getenv('INFLUXDB_ORG')
+BUCKET = os.getenv('INFLUXDB_BUCKET', 'apcupsd')
+TOKEN = os.getenv('INFLUXDB_TOKEN')
+PORT = os.getenv('INFLUXDB_PORT', '8086')
+HOST = os.getenv('INFLUXDB_HOST')
+APCUPSD_HOST = os.getenv('APCUPSD_HOST', HOST)
 
-def move_tag_values_to_tag_dictionary(status, tags, tag_keys):
-    for key in tag_keys:
-        if key in status:
-            tags[key] = status[key]
-            status.pop(key, None)
+INTERVAL = int(os.getenv('INTERVAL', '10'))
+
+VERBOSE = os.getenv('VERBOSE', 'false').lower() == 'true'
+
+INVALID_APC_KEYS = ['DATE', 'STARTTIME', 'END APC','ALARMDEL']
+VALID_TAG_KEYS = ['APC', 'HOSTNAME', 'UPSNAME', 'VERSION',
+    'CABLE', 'MODEL', 'UPSMODE', 'DRIVER', 'APCMODEL']
+
+WATTS_KEY = 'WATTS'
+NOM_POWER_KEY = 'NOMPOWER'
+LOAD_PCT_KEY = 'LOADPCT'
+HOSTNAME_KEY = 'HOSTNAME'
+
+def remove_irrelevant_data(data, keys_to_remove):
+    """Remove values matching keys_to_remove from the dictionary"""
+    for key in keys_to_remove:
+        data.pop(key, None)
+
+def move_tag_values_to_tag_dictionary(data, tags, keys):
+    """Copies key/value pairs from data to tags"""
+    for key in keys:
+        if key in data:
+            tags[key] = data[key]
+            data.pop(key, None)
 
 def convert_numerical_values_to_floats(ups):
+    """Convert all ints to floats in the provided data"""
     for key in ups:
         if ups[key].replace('.', '', 1).isdigit():
             ups[key] = float(ups[key])
 
-dbname = os.getenv('INFLUXDB_DATABASE', 'apcupsd')
-user = os.getenv('INFLUXDB_USER')
-password = os.getenv('INFLUXDB_PASSWORD')
-port = os.getenv('INFLUXDB_PORT', 8086)
-host = os.getenv('INFLUXDB_HOST')
-apcupsd_host = os.getenv('APCUPSD_HOST', host)
+def run_exporter(sleep_interval):
+    """Runs the exporter every INTERVAL seconds"""
+    while True:
+        with InfluxDBClient(f'{HOST}:{PORT}', token=TOKEN, org=ORG) as client:
+            with client.write_api(write_options=SYNCHRONOUS) as write_api:
 
-min_delay = int(os.getenv('INTERVAL', 10))
-max_delay = int(os.getenv('MAX_INTERVAL', min_delay * 8))
-delay = min_delay
+                ups = apc.parse(apc.get(host=APCUPSD_HOST), strip_units=True)
 
-print_to_console = os.getenv('VERBOSE', 'false').lower() == 'true'
+                remove_irrelevant_data(ups, INVALID_APC_KEYS)
 
-remove_these_keys = ['DATE', 'STARTTIME', 'END APC','ALARMDEL']
-tag_keys = ['APC', 'HOSTNAME', 'UPSNAME', 'VERSION', 'CABLE', 'MODEL', 'UPSMODE', 'DRIVER', 'APCMODEL']
+                tags = {
+                    'host': os.getenv(
+                        HOSTNAME_KEY, ups.get(HOSTNAME_KEY, 'apcupsd-influxdb-exporter'))
+                }
+                move_tag_values_to_tag_dictionary(ups, tags, VALID_TAG_KEYS)
 
-watts_key = 'WATTS'
-nominal_power_key = 'NOMPOWER'
+                convert_numerical_values_to_floats(ups)
 
-client = None
+                if WATTS_KEY not in os.environ and NOM_POWER_KEY not in ups:
+                    raise ValueError(("Your UPS does not specify NOMPOWER, you must specify "
+                        "the max watts your UPS can produce."))
 
-while True:
-    if not client:
-        try:
-            client = InfluxDBClient(host, port, user, password, dbname)
-            client.ping()
-            print('Connectivity to InfluxDB present')
-            dblist = client.get_list_database()
-            if dbname not in [ x['name'] for x in dblist]:
-                print("Database doesn't exist, creating")
-                client.create_database(dbname)
-            if delay != min_delay:
-                delay = min_delay
-                print('Connection successful, changing delay to %d' % delay)
-        except Exception as e:
-            if isinstance(e, InfluxDBClientError) and e.code == 401:
-                print('Credentials provided are not authorized, error is: {}'.format(e.content))
-            client = None
-            new_delay = min(delay * 2, max_delay)
-            if delay != new_delay:
-                delay = new_delay
-                print('Error creating client, changing delay to %d' % delay)
+                ups[NOM_POWER_KEY] = float(os.getenv(
+                    WATTS_KEY, ups.get(NOM_POWER_KEY))) * 0.01 * float(ups.get(LOAD_PCT_KEY, 0.0))
 
-    try:
-        ups = apc.parse(apc.get(host=apcupsd_host), strip_units=True)
+                json_body = {
+                    'measurement': 'apcaccess_status',
+                    'fields': ups,
+                    'tags': tags
+                }
 
-        remove_irrelevant_data(ups, remove_these_keys)
+                point = Point.from_dict(json_body)
 
-        tags = {'host': os.getenv('HOSTNAME', ups.get('HOSTNAME', 'apcupsd-influxdb-exporter'))}
-        move_tag_values_to_tag_dictionary(ups, tags, tag_keys)
+                response = write_api.write(BUCKET, ORG, point)
 
-        convert_numerical_values_to_floats(ups)
+                if VERBOSE:
+                    print(json_body)
+                    print(response)
 
-        if watts_key not in os.environ and nominal_power_key not in ups:
-            raise ValueError("Your UPS does not specify NOMPOWER, you must specify the max watts your UPS can produce.")
+        time.sleep(sleep_interval)
 
-        ups[watts_key] = float(os.getenv('WATTS', ups.get('NOMPOWER'))) * 0.01 * float(ups.get('LOADPCT', 0.0))
 
-        json_body = [
-            {
-                'measurement': 'apcaccess_status',
-                'fields': ups,
-                'tags': tags
-            }
-        ]
-
-        if print_to_console:
-            print(json_body)
-            print(client.write_points(json_body))
-        else:
-            client.write_points(json_body)
-
-    except ValueError as valueError:
-        raise valueError
-    except (requests.exceptions.ConnectionError,
-            requests.exceptions.HTTPError,
-            requests.exceptions.Timeout) as e:
-        print(e)
-        print('Resetting client connection')
-        client = None
-    except Exception as e:
-        print(e)
-
-    time.sleep(delay)
+if __name__ == "__main__":
+    run_exporter(INTERVAL)

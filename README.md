@@ -12,16 +12,16 @@ These are all the available environment variables, along with some example value
 
 | Environment Varialbe | Example Value | Description |
 | -------------------- | ------------- | ----------- |
-| WATTS |  1000 | if your ups doesn't have NOMPOWER, set this to be the rated max power, if you do have NOMPOWER, don't set this variable |
 | APCUPSD_HOST | 192.168.1.100 | host running apcupsd, defaults to the value of influxdb_host |
 | INFLUXDB_HOST | 192.168.1.101 | host running influxdb |
-| HOSTNAME | unraid | host you want to show up in influxdb. Optional, defaults to apcupsd hostname value|
-| INFLUXDB_DATABASE | apcupsd | db name for influxdb. optional, defaults to apcupsd |
-| INFLUXDB_USER | myuser | optional, defaults to empty |
-| INFLUXDB_PASSWORD | pass | optional, defaults to empty |
 | INFLUXDB_PORT |  8086 | optional, defaults to 8086 |
-| INTERVAL | 10 | optional, defaults to 10 seconds |
-| VERBOSE | true | if anything but true docker logging will show no output |
+| INFLUXDB_BUCKET | apcupsd | bucket name for influxdb. optional, defaults to apcupsd |
+| INFLUXDB_ORG | org | org name for influxdb |
+| INFLUXDB_TOKEN | token | access token for influxdb |
+| INTERVAL | 10 | interval (in seconds) to run the exporter. optional, defaults to 10 seconds |
+| WATTS |  1000 | if your ups doesn't have NOMPOWER, set this to be the rated max power, if you do have NOMPOWER, don't set this variable |
+| HOSTNAME | unraid | host you want to show up in influxdb. Optional, defaults to apcupsd hostname value|
+| VERBOSE | true | if anything but true docker logging will show no output. Optional, defaults to false |
 
 ## How to Use
 
@@ -31,6 +31,8 @@ docker run --rm  -d --name="apcupsd-influxdb-exporter" \
     -e "WATTS=600" \
     -e "INFLUXDB_HOST=10.0.1.11" \
     -e "APCUPSD_HOST=10.0.1.11" \
+    -e "INFLUXDB_ORG=MyOrg" \
+    -e "INFLUXDB_TOKEN=mysecrettoken" \
     -t atribe/apcupsd-influxdb-exporter
 ```
 Note: if your UPS does not include the NOMPOWER metric, you will need to include the WATTS environment variable in order to compute the live-power consumption 
@@ -48,6 +50,8 @@ services:
       WATTS: 1000
       APCUPSD_HOST: 10.0.1.11
       INFLUXDB_HOST: 10.0.1.11
+      INFLUXDB_ORG: MyOrg
+      INFLUXDB_TOKEN: mysecrettoken
       INTERVAL: 5
 ```
 

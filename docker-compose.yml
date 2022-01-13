@@ -8,8 +8,10 @@ services:
       WATTS: 1500 # if your ups doesn't have NOMPOWER, set this to be the rated max power, if you do have NOMPOWER, don't set this variable
       APCUPSD_HOST: localhost # host running apcupsd
       INFLUXDB_HOST: localhost # host running influxdb
+      INTERVAL: 10 # interval (in seconds) to run the exporter. option, defaults to 10 seconds.
       HOSTNAME: unraid # host you want to show up in influxdb, optional defaults to apcupsd-influxdb-exporter
-      INFLUXDB_DATABASE: apcupsd # db name for influxdb. optional, defaults to apcupsd
-      INFLUXDB_USER: # optional, defaults to empty
-      INFLUXDB_PASSWORD: # optional, defaults to empty
+      INFLUXDB_ORG: # org name for influxdb
+      INFLUXDB_BUCKET: apcupsd # bucket name for influxdb. optional, defaults to apcupsd
+      INFLUXDB_TOKEN: # access token for influxdb
       INFLUXDB_PORT: 8086 # optional, defaults to 8086
+      VERBOSE: # if anything but true docker logging will show no output,  optional, defaults to false.
