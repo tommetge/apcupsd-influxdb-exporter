@@ -69,7 +69,7 @@ def run_exporter(sleep_interval):
                     raise ValueError(("Your UPS does not specify NOMPOWER, you must specify "
                         "the max watts your UPS can produce."))
 
-                ups[NOM_POWER_KEY] = float(os.getenv(
+                ups[WATTS_KEY] = float(os.getenv(
                     WATTS_KEY, ups.get(NOM_POWER_KEY))) * 0.01 * float(ups.get(LOAD_PCT_KEY, 0.0))
 
                 json_body = {
