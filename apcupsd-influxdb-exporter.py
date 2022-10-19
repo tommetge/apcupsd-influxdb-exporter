@@ -50,41 +50,44 @@ def convert_numerical_values_to_floats(ups):
 def run_exporter(sleep_interval):
     """Runs the exporter every INTERVAL seconds"""
     while True:
-        with InfluxDBClient(f'{HOST}:{PORT}', token=TOKEN, org=ORG) as client:
-            with client.write_api(write_options=SYNCHRONOUS) as write_api:
+        try:
+            with InfluxDBClient(f'{HOST}:{PORT}', token=TOKEN, org=ORG) as client:
+                with client.write_api(write_options=SYNCHRONOUS) as write_api:
 
-                ups = apc.parse(apc.get(host=APCUPSD_HOST), strip_units=True)
+                    ups = apc.parse(apc.get(host=APCUPSD_HOST), strip_units=True)
 
-                remove_irrelevant_data(ups, INVALID_APC_KEYS)
+                    remove_irrelevant_data(ups, INVALID_APC_KEYS)
 
-                tags = {
-                    'host': os.getenv(
-                        HOSTNAME_KEY, ups.get(HOSTNAME_KEY, 'apcupsd-influxdb-exporter'))
-                }
-                move_tag_values_to_tag_dictionary(ups, tags, VALID_TAG_KEYS)
+                    tags = {
+                        'host': os.getenv(
+                            HOSTNAME_KEY, ups.get(HOSTNAME_KEY, 'apcupsd-influxdb-exporter'))
+                    }
+                    move_tag_values_to_tag_dictionary(ups, tags, VALID_TAG_KEYS)
 
-                convert_numerical_values_to_floats(ups)
+                    convert_numerical_values_to_floats(ups)
 
-                if WATTS_KEY not in os.environ and NOM_POWER_KEY not in ups:
-                    raise ValueError(("Your UPS does not specify NOMPOWER, you must specify "
-                        "the max watts your UPS can produce."))
+                    if WATTS_KEY not in os.environ and NOM_POWER_KEY not in ups:
+                        raise ValueError(("Your UPS does not specify NOMPOWER, you must specify "
+                            "the max watts your UPS can produce."))
 
-                ups[WATTS_KEY] = float(os.getenv(
-                    WATTS_KEY, ups.get(NOM_POWER_KEY))) * 0.01 * float(ups.get(LOAD_PCT_KEY, 0.0))
+                    ups[WATTS_KEY] = float(os.getenv(
+                        WATTS_KEY, ups.get(NOM_POWER_KEY))) * 0.01 * float(ups.get(LOAD_PCT_KEY, 0.0))
 
-                json_body = {
-                    'measurement': 'apcaccess_status',
-                    'fields': ups,
-                    'tags': tags
-                }
+                    json_body = {
+                        'measurement': 'apcaccess_status',
+                        'fields': ups,
+                        'tags': tags
+                    }
 
-                point = Point.from_dict(json_body)
+                    point = Point.from_dict(json_body)
 
-                response = write_api.write(BUCKET, ORG, point)
+                    response = write_api.write(BUCKET, ORG, point)
 
-                if VERBOSE:
-                    print(json_body)
-                    print(response)
+                    if VERBOSE:
+                        print(json_body)
+                        print(response)
+        except BaseException as err:
+            print(f"Exception {err=} while running exporter")
 
         time.sleep(sleep_interval)
 
